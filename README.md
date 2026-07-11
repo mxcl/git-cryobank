@@ -16,6 +16,13 @@ Install it on your Mac and the archive host:
 $ brew install mxcl/made/git-cryobank
 ```
 
+Choose the host once on your Mac:
+
+```sh
+$ git-cryobank target pangolin
+Cryobank target configured as pangolin
+```
+
 > [!IMPORTANT]
 > Mount the external disk before configuring its path. `/Volumes/Tundra` must
 > actually be Tundra, not an unfortunately named directory on your boot disk.
@@ -34,7 +41,7 @@ Then freeze a project:
 
 ```sh
 $ cd ~/Developer/finished-with-this
-$ git cryobank pangolin
+$ git cryobank
 Archived /Users/mxcl/Developer/finished-with-this to pangolin as finished-with-this and moved it to Trash.
 ```
 
@@ -66,10 +73,11 @@ Trash operation leaves your local checkout where it is.
 
 ## Choose the cryobank
 
-`git-cryobank init DIR` writes the location to
-`~/.config/git-cryobank/root`. It is the only way to choose storage, ensuring
-SSH upload commands and the web server always agree. Without it,
-`git-cryobank` refuses to start or accept an archive.
+`git-cryobank target HOST` writes the client destination to
+`~/.config/git-cryobank/target`. `git-cryobank init DIR` writes the server
+storage location to `~/.config/git-cryobank/root`. There are no flags,
+environment variables, or fallback locations; missing configuration is an
+error.
 
 > [!WARNING]
 > Ensure external storage is mounted before starting the server. Also, the web

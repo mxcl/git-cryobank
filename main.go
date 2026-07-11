@@ -15,7 +15,8 @@ import (
 	"strings"
 )
 
-const usage = `git cryobank HOST [PATH]
+const usage = `git cryobank [PATH]
+git-cryobank target HOST
 git-cryobank init ROOT
 git-cryobank serve [--listen ADDR]
 
@@ -31,9 +32,11 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return errors.New(usage)
+		return archive(nil)
 	}
 	switch args[0] {
+	case "target":
+		return configureTarget(args[1:])
 	case "init":
 		return initialize(args[1:])
 	case "serve":
@@ -49,13 +52,16 @@ func run(args []string) error {
 }
 
 func archive(args []string) error {
-	if len(args) < 1 || len(args) > 2 {
-		return errors.New("usage: git cryobank HOST [PATH]")
+	if len(args) > 1 {
+		return errors.New("usage: git cryobank [PATH]")
 	}
-	host := args[0]
+	host, err := archiveTarget()
+	if err != nil {
+		return err
+	}
 	path := "."
-	if len(args) == 2 {
-		path = args[1]
+	if len(args) == 1 {
+		path = args[0]
 	}
 	repo, err := repository(path)
 	if err != nil {
@@ -133,6 +139,31 @@ func archive(args []string) error {
 	return nil
 }
 
+func configureTarget(args []string) error {
+	if len(args) != 1 || !validHost(args[0]) {
+		return errors.New("usage: git-cryobank target HOST")
+	}
+	if err := writeConfig("target", args[0]); err != nil {
+		return err
+	}
+	fmt.Println("Cryobank target configured as", args[0])
+	return nil
+}
+
+func archiveTarget() (string, error) {
+	target, err := readConfig("target")
+	if errors.Is(err, os.ErrNotExist) {
+		return "", errors.New("target is not configured; run git-cryobank target HOST")
+	}
+	if err != nil {
+		return "", err
+	}
+	if !validHost(target) {
+		return "", errors.New("configured target is invalid; run git-cryobank target HOST")
+	}
+	return target, nil
+}
+
 func repository(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -178,7 +209,7 @@ func fileDigest(path string) (string, int64, error) {
 }
 
 func ssh(host string, stdin io.Reader, args ...string) (string, error) {
-	if host == "" || strings.HasPrefix(host, "-") {
+	if !validHost(host) {
 		return "", errors.New("invalid SSH host")
 	}
 	remoteCommand := "git-cryobank " + strings.Join(args, " ")
@@ -190,6 +221,42 @@ func ssh(host string, stdin io.Reader, args ...string) (string, error) {
 		return "", fmt.Errorf("ssh %s: %w: %s", host, err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
+}
+
+func validHost(host string) bool {
+	return host != "" && !strings.HasPrefix(host, "-") && !strings.ContainsAny(host, " \t\r\n")
+}
+
+func readConfig(name string) (string, error) {
+	path, err := configPath(name)
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(path)
+	return strings.TrimSpace(string(b)), err
+}
+
+func writeConfig(name, value string) error {
+	path, err := configPath(name)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(value+"\n"), 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func configPath(name string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "git-cryobank", name), nil
 }
 
 func command(dir, name string, args ...string) error {

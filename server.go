@@ -25,22 +25,17 @@ var (
 )
 
 func archiveRoot() (string, error) {
-	home, err := os.UserHomeDir()
+	root, err := readConfig("root")
+	if errors.Is(err, os.ErrNotExist) {
+		return "", errors.New("cryobank is not configured; run git-cryobank init ROOT")
+	}
 	if err != nil {
 		return "", err
 	}
-	config := filepath.Join(home, ".config", "git-cryobank", "root")
-	if b, err := os.ReadFile(config); err == nil {
-		root := strings.TrimSpace(string(b))
-		if root == "" {
-			return "", errors.New("configured archive root is empty")
-		}
-		return filepath.Abs(root)
-	} else if errors.Is(err, os.ErrNotExist) {
-		return "", errors.New("cryobank is not configured; run git-cryobank init ROOT")
-	} else {
-		return "", err
+	if root == "" {
+		return "", errors.New("configured archive root is empty")
 	}
+	return filepath.Abs(root)
 }
 
 func initialize(args []string) error {
@@ -54,20 +49,7 @@ func initialize(args []string) error {
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return err
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	dir := filepath.Join(home, ".config", "git-cryobank")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	config := filepath.Join(dir, "root")
-	tmp := config + ".tmp"
-	if err := os.WriteFile(tmp, []byte(root+"\n"), 0600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, config); err != nil {
+	if err := writeConfig("root", root); err != nil {
 		return err
 	}
 	fmt.Println("Cryobank root configured at", root)

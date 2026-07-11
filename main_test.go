@@ -52,7 +52,7 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	setArchiveRoot(t, root)
+	setConfig(t, "root", root)
 	data, err := os.ReadFile(bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 }
 
 func TestRejectsUnsafeArchiveName(t *testing.T) {
-	setArchiveRoot(t, t.TempDir())
+	setConfig(t, "root", t.TempDir())
 	if err := remote([]string{"probe", "../escape", strings.Repeat("a", 64), "10"}); err == nil {
 		t.Fatal("unsafe archive name accepted")
 	}
@@ -126,13 +126,37 @@ func TestRejectsUnsafeArchiveName(t *testing.T) {
 
 func TestArchiveRootUsesConfig(t *testing.T) {
 	want := t.TempDir()
-	setArchiveRoot(t, want)
+	setConfig(t, "root", want)
 	got, err := archiveRoot()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
 		t.Fatalf("archiveRoot() = %q, want configured value %q", got, want)
+	}
+}
+
+func TestConfigureTarget(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := configureTarget([]string{"pangolin"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := archiveTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "pangolin" {
+		t.Fatalf("archiveTarget() = %q, want pangolin", got)
+	}
+	if err := configureTarget([]string{"-unsafe"}); err == nil {
+		t.Fatal("configureTarget accepted an option as a host")
+	}
+}
+
+func TestArchiveTargetRequiresConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if _, err := archiveTarget(); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("archiveTarget() error = %v, want configuration error", err)
 	}
 }
 
@@ -173,7 +197,7 @@ func testRepo(t *testing.T) string {
 	return repo
 }
 
-func setArchiveRoot(t *testing.T, root string) {
+func setConfig(t *testing.T, name, value string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -181,7 +205,7 @@ func setArchiveRoot(t *testing.T, root string) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "root"), []byte(root+"\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(value+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 }
