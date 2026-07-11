@@ -119,7 +119,7 @@ func TestRejectsUnsafeArchiveName(t *testing.T) {
 func TestArchiveRootEnvironmentPrecedence(t *testing.T) {
 	home := t.TempDir()
 	configRoot := filepath.Join(home, "from-config")
-	configDir := filepath.Join(home, ".config", "git-attic")
+	configDir := filepath.Join(home, ".config", "git-cryobank")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -128,14 +128,15 @@ func TestArchiveRootEnvironmentPrecedence(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("GIT_ATTIC_ROOT", filepath.Join(home, "legacy-env"))
-	want := filepath.Join(home, "attic-env")
-	t.Setenv("ATTIC", want)
+	t.Setenv("ATTIC", filepath.Join(home, "attic-env"))
+	want := filepath.Join(home, "cryobank-env")
+	t.Setenv("CRYOBANK", want)
 	got, err := archiveRoot()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
-		t.Fatalf("archiveRoot() = %q, want ATTIC value %q", got, want)
+		t.Fatalf("archiveRoot() = %q, want CRYOBANK value %q", got, want)
 	}
 }
 

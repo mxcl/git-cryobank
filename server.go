@@ -25,6 +25,9 @@ var (
 )
 
 func archiveRoot() (string, error) {
+	if root := os.Getenv("CRYOBANK"); root != "" {
+		return filepath.Abs(root)
+	}
 	if root := os.Getenv("ATTIC"); root != "" {
 		return filepath.Abs(root)
 	}
@@ -35,7 +38,7 @@ func archiveRoot() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	config := filepath.Join(home, ".config", "git-attic", "root")
+	config := filepath.Join(home, ".config", "git-cryobank", "root")
 	if b, err := os.ReadFile(config); err == nil {
 		root := strings.TrimSpace(string(b))
 		if root == "" {
@@ -45,12 +48,12 @@ func archiveRoot() (string, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	return filepath.Join(home, "GitAttic"), nil
+	return filepath.Join(home, "Cryobank"), nil
 }
 
 func initialize(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: git-attic init ROOT")
+		return errors.New("usage: git-cryobank init ROOT")
 	}
 	root, err := filepath.Abs(args[0])
 	if err != nil {
@@ -63,7 +66,7 @@ func initialize(args []string) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Join(home, ".config", "git-attic")
+	dir := filepath.Join(home, ".config", "git-cryobank")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -75,7 +78,7 @@ func initialize(args []string) error {
 	if err := os.Rename(tmp, config); err != nil {
 		return err
 	}
-	fmt.Println("Git Attic root configured at", root)
+	fmt.Println("Cryobank root configured at", root)
 	return nil
 }
 
@@ -183,11 +186,11 @@ func remote(args []string) error {
 
 func archived(root, name, digest string) bool {
 	repo := filepath.Join(root, name+".git")
-	out, err := exec.Command("git", "-C", repo, "config", "--get", "attic.bundleSHA256").Output()
+	out, err := exec.Command("git", "-C", repo, "config", "--get", "cryobank.bundleSHA256").Output()
 	if err != nil || strings.TrimSpace(string(out)) != digest {
 		return false
 	}
-	want, err := exec.Command("git", "-C", repo, "config", "--get", "attic.refStateSHA256").Output()
+	want, err := exec.Command("git", "-C", repo, "config", "--get", "cryobank.refStateSHA256").Output()
 	if err != nil {
 		return false
 	}
@@ -232,10 +235,10 @@ func finalize(root, name, digest string, size int64, bundle string) error {
 	if err != nil {
 		return err
 	}
-	if err := exec.Command("git", "-C", tmp, "config", "attic.bundleSHA256", digest).Run(); err != nil {
+	if err := exec.Command("git", "-C", tmp, "config", "cryobank.bundleSHA256", digest).Run(); err != nil {
 		return err
 	}
-	if err := exec.Command("git", "-C", tmp, "config", "attic.refStateSHA256", state).Run(); err != nil {
+	if err := exec.Command("git", "-C", tmp, "config", "cryobank.refStateSHA256", state).Run(); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, dest); err != nil {
@@ -330,9 +333,9 @@ type repoView struct {
 type commitView struct{ Hash, Subject, Date string }
 
 var page = template.Must(template.New("page").Parse(`<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Git Attic</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>git-cryobank</title>
 <style>body{font:16px system-ui;max-width:72rem;margin:3rem auto;padding:0 1rem;color:#222}a{color:#075985}pre{background:#f4f4f5;padding:1rem;overflow:auto}li{margin:.35rem 0}.muted{color:#71717a}</style></head><body>
-<h1><a href="/">Git Attic</a>{{if .Name}} / {{.Name}}{{end}}</h1>
+<h1><a href="/">git-cryobank</a>{{if .Name}} / {{.Name}}{{end}}</h1>
 {{if .Repos}}<ul>{{range .Repos}}<li><a href="/{{.}}/">{{.}}</a></li>{{end}}</ul>{{end}}
 {{if .Name}}{{if .Content}}<pre>{{.Content}}</pre>{{else}}
 <p><a href="/{{.Name}}/tree?ref={{.Ref}}">Files</a> · <span class="muted">read-only bare repository</span></p>

@@ -1,3 +1,3 @@
-module github.com/mxcl/git-attic
+module github.com/mxcl/git-cryobank
 
 go 1.24

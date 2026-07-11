@@ -15,16 +15,16 @@ import (
 	"strings"
 )
 
-const usage = `git attic HOST [PATH]
-git-attic init ROOT
-git-attic serve [--root DIR] [--listen ADDR]
+const usage = `git cryobank HOST [PATH]
+git-cryobank init ROOT
+git-cryobank serve [--root DIR] [--listen ADDR]
 
 Archives a clean repository over SSH, verifies it remotely, then moves the
 local repository to the macOS Trash. PATH defaults to the current directory.`
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "git-attic:", err)
+		fmt.Fprintln(os.Stderr, "git-cryobank:", err)
 		os.Exit(1)
 	}
 }
@@ -50,7 +50,7 @@ func run(args []string) error {
 
 func archive(args []string) error {
 	if len(args) < 1 || len(args) > 2 {
-		return errors.New("usage: git attic HOST [PATH]")
+		return errors.New("usage: git cryobank HOST [PATH]")
 	}
 	host := args[0]
 	path := "."
@@ -69,7 +69,7 @@ func archive(args []string) error {
 		return fmt.Errorf("cannot fingerprint local refs: %w", err)
 	}
 
-	tmp, err := os.CreateTemp("", "git-attic-*.bundle")
+	tmp, err := os.CreateTemp("", "git-cryobank-*.bundle")
 	if err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func ssh(host string, stdin io.Reader, args ...string) (string, error) {
 	if host == "" || strings.HasPrefix(host, "-") {
 		return "", errors.New("invalid SSH host")
 	}
-	remoteCommand := "git-attic " + strings.Join(args, " ")
+	remoteCommand := "git-cryobank " + strings.Join(args, " ")
 	cmd := exec.Command("ssh", "--", host, remoteCommand)
 	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
