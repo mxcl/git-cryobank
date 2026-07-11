@@ -300,7 +300,7 @@ func serve(args []string) error {
 		return err
 	}
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	listen := fs.String("listen", "127.0.0.1:8080", "HTTP listen address")
+	listen := fs.String("listen", "127.0.0.1:9418", "HTTP listen address")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

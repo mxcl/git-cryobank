@@ -27,7 +27,7 @@ $ ssh pangolin 'git-cryobank init /Volumes/Tundra/Attic'
 Cryobank root configured at /Volumes/Tundra/Attic
 
 $ ssh pangolin 'git-cryobank serve'
-Serving /Volumes/Tundra/Attic on http://127.0.0.1:8080
+Serving /Volumes/Tundra/Attic on http://127.0.0.1:9418
 ```
 
 Then freeze a project:
@@ -43,8 +43,8 @@ The bare repository now lives at
 tunnel:
 
 ```sh
-$ ssh -N -L 8080:127.0.0.1:8080 pangolin
-# ^^ open http://127.0.0.1:8080
+$ ssh -N -L 9418:127.0.0.1:9418 pangolin
+# ^^ open http://127.0.0.1:9418
 ```
 
 ## It either verifies or it doesn't touch your checkout
