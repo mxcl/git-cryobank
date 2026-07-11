@@ -64,6 +64,10 @@ func archive(args []string) error {
 	if err := clean(repo); err != nil {
 		return err
 	}
+	initialState, err := refState(repo)
+	if err != nil {
+		return fmt.Errorf("cannot fingerprint local refs: %w", err)
+	}
 
 	tmp, err := os.CreateTemp("", "git-attic-*.bundle")
 	if err != nil {
@@ -111,6 +115,13 @@ func archive(args []string) error {
 	}
 	if strings.TrimSpace(confirmation) != "archived "+digest {
 		return fmt.Errorf("remote verification failed: %s", strings.TrimSpace(confirmation))
+	}
+	if err := clean(repo); err != nil {
+		return fmt.Errorf("remote archive verified, but the local repository changed during upload: %w", err)
+	}
+	currentState, err := refState(repo)
+	if err != nil || currentState != initialState {
+		return errors.New("remote archive verified, but local refs or HEAD changed during upload; nothing was moved to Trash")
 	}
 	if runtime.GOOS != "darwin" {
 		return errors.New("remote archive verified, but refusing removal: Trash is only supported on macOS")

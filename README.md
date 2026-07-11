@@ -90,13 +90,17 @@ The client performs these steps:
    compare every archived ref with the bundle.
 6. Record a fingerprint of every ref and symbolic `HEAD`, then require the
    server's exact content-hash confirmation.
-7. Invoke `/usr/bin/trash` on the local repository root.
+7. Re-check local cleanliness and the original ref/`HEAD` fingerprint, catching
+   edits or commits made while the upload was running.
+8. Invoke `/usr/bin/trash` on the local repository root.
 
 If SSH drops, verification fails, the name collides, or Trash itself fails,
 the local repository remains where it is. Retrying is safe: partial uploads
 resume, and a previously verified archive with the same hash and unchanged
 remote refs is idempotent. If someone pushes to the bare repository afterward,
 a retry will stop instead of treating the changed remote as the original.
+Likewise, if the local repository changes during upload, the verified remote
+archive remains but the local directory is not moved.
 
 Ignored files are not part of Git and are not archived; like the rest of the
 working directory, they move to Trash after verification.

@@ -116,6 +116,22 @@ func TestRejectsUnsafeArchiveName(t *testing.T) {
 	}
 }
 
+func TestRefStateChangesWithHEADAndRefs(t *testing.T) {
+	repo := testRepo(t)
+	before, err := refState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "branch", "another")
+	after, err := refState(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("ref fingerprint did not change after adding a branch")
+	}
+}
+
 func testRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
