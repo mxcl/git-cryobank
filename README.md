@@ -86,8 +86,8 @@ $ git clone pangolin:/Volumes/Tundra/Attic/finished-with-this.git
 $ git push pangolin:/Volumes/Tundra/Attic/finished-with-this.git main
 ```
 
-The web UI is read-only and intentionally small: repositories, commits, file
-trees, and blobs. No users, issues, pull requests, actions, or other empty
+The web UI is read-only and intentionally small: repositories, branches,
+commits, file trees, and blobs. No users, issues, pull requests, actions, or other empty
 furniture.
 
 For the rest:

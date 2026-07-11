@@ -315,8 +315,10 @@ type repoView struct {
 	Name, Ref, Path, Content string
 	Repos                    []string
 	Files                    []string
+	Branches                 []branchView
 	Commits                  []commitView
 }
+type branchView struct{ Name, Ref string }
 type commitView struct{ Hash, Subject, Date string }
 
 var page = template.Must(template.New("page").Parse(`<!doctype html>
@@ -327,6 +329,7 @@ var page = template.Must(template.New("page").Parse(`<!doctype html>
 {{if .Name}}{{if .Content}}<pre>{{.Content}}</pre>{{else}}
 <p><a href="/{{.Name}}/tree?ref={{.Ref}}">Files</a> · <span class="muted">read-only bare repository</span></p>
 {{if .Files}}<ul>{{range .Files}}<li><a href="/{{$.Name}}/blob?ref={{$.Ref}}&path={{urlquery .}}">{{.}}</a></li>{{end}}</ul>{{end}}
+{{if .Branches}}<h2>Branches</h2><ul>{{range .Branches}}<li><a href="/{{$.Name}}/tree?ref={{urlquery .Ref}}">{{.Name}}</a></li>{{end}}</ul>{{end}}
 {{if .Commits}}<h2>Recent commits</h2><ul>{{range .Commits}}<li><code>{{.Hash}}</code> {{.Subject}} <span class="muted">{{.Date}}</span></li>{{end}}</ul>{{end}}
 {{end}}{{end}}</body></html>`))
 
@@ -373,6 +376,9 @@ func webHandler(root string) http.Handler {
 		switch mode {
 		case "", "summary":
 			view.Commits, err = recentCommits(repo, ref)
+			if err == nil {
+				view.Branches, err = branches(repo)
+			}
 		case "tree":
 			view.Files, err = treeFiles(repo, ref)
 		case "blob":
@@ -403,6 +409,22 @@ func listRepos(root string) ([]string, error) {
 	}
 	sort.Strings(repos)
 	return repos, nil
+}
+
+func branches(repo string) ([]branchView, error) {
+	out, err := exec.Command("git", "-C", repo, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes").Output()
+	if err != nil {
+		return nil, err
+	}
+	var branches []branchView
+	for _, ref := range strings.Fields(string(out)) {
+		name := strings.TrimPrefix(ref, "refs/heads/")
+		if name == ref {
+			name = strings.TrimPrefix(ref, "refs/")
+		}
+		branches = append(branches, branchView{Name: name, Ref: ref})
+	}
+	return branches, nil
 }
 
 func recentCommits(repo, ref string) ([]commitView, error) {

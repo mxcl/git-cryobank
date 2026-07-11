@@ -37,6 +37,7 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 	repo := testRepo(t)
 	runGit(t, repo, "tag", "-a", "v1", "-m", "version one")
 	runGit(t, repo, "branch", "old")
+	runGit(t, repo, "update-ref", "refs/remotes/origin/legacy", "HEAD")
 	runGit(t, repo, "switch", "--detach")
 	if err := os.WriteFile(filepath.Join(repo, "detached.txt"), []byte("preserved\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -105,6 +106,13 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 		resp.Body.Close()
 		if resp.StatusCode != 200 {
 			t.Fatalf("GET %s: %s: %s", path, resp.Status, body)
+		}
+		if path == "/project/" {
+			for _, branch := range []string{">main</a>", ">old</a>", ">remotes/origin/legacy</a>"} {
+				if !bytes.Contains(body, []byte(branch)) {
+					t.Errorf("repository page missing branch %q", branch)
+				}
+			}
 		}
 	}
 }
