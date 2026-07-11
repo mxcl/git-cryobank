@@ -32,7 +32,48 @@ func archiveRoot() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	config := filepath.Join(home, ".config", "git-attic", "root")
+	if b, err := os.ReadFile(config); err == nil {
+		root := strings.TrimSpace(string(b))
+		if root == "" {
+			return "", errors.New("configured archive root is empty")
+		}
+		return filepath.Abs(root)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
 	return filepath.Join(home, "GitAttic"), nil
+}
+
+func initialize(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: git-attic init ROOT")
+	}
+	root, err := filepath.Abs(args[0])
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return err
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(home, ".config", "git-attic")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	config := filepath.Join(dir, "root")
+	tmp := config + ".tmp"
+	if err := os.WriteFile(tmp, []byte(root+"\n"), 0600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, config); err != nil {
+		return err
+	}
+	fmt.Println("Git Attic root configured at", root)
+	return nil
 }
 
 func remote(args []string) error {
@@ -169,7 +210,7 @@ func finalize(root, name, digest string, size int64, bundle string) error {
 	}
 	os.Remove(tmp)
 	defer os.RemoveAll(tmp)
-	cmd := exec.Command("git", "clone", "--bare", "--quiet", bundle, tmp)
+	cmd := exec.Command("git", "clone", "--mirror", "--quiet", bundle, tmp)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("bundle verification failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}

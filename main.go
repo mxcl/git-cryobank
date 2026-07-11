@@ -16,6 +16,7 @@ import (
 )
 
 const usage = `git attic HOST [PATH]
+git-attic init ROOT
 git-attic serve [--root DIR] [--listen ADDR]
 
 Archives a clean repository over SSH, verifies it remotely, then moves the
@@ -33,6 +34,8 @@ func run(args []string) error {
 		return errors.New(usage)
 	}
 	switch args[0] {
+	case "init":
+		return initialize(args[1:])
 	case "serve":
 		return serve(args[1:])
 	case "probe", "upload", "commit":
@@ -77,6 +80,9 @@ func archive(args []string) error {
 		return err
 	}
 	name := filepath.Base(repo)
+	if !safeName.MatchString(name) || name == "." || name == ".." {
+		return fmt.Errorf("repository directory name %q is unsafe; use only letters, digits, dot, underscore, and hyphen", name)
+	}
 
 	offsetText, err := ssh(host, nil, "probe", name, digest, strconv.FormatInt(size, 10))
 	if err != nil {
