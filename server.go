@@ -181,7 +181,15 @@ func remote(args []string) error {
 func archived(root, name, digest string) bool {
 	repo := filepath.Join(root, name+".git")
 	out, err := exec.Command("git", "-C", repo, "config", "--get", "attic.bundleSHA256").Output()
-	return err == nil && strings.TrimSpace(string(out)) == digest
+	if err != nil || strings.TrimSpace(string(out)) != digest {
+		return false
+	}
+	want, err := exec.Command("git", "-C", repo, "config", "--get", "attic.refStateSHA256").Output()
+	if err != nil {
+		return false
+	}
+	got, err := refState(repo)
+	return err == nil && strings.TrimSpace(string(want)) == got
 }
 
 func finalize(root, name, digest string, size int64, bundle string) error {
@@ -217,13 +225,41 @@ func finalize(root, name, digest string, size int64, bundle string) error {
 	if err := compareRefs(bundle, tmp); err != nil {
 		return err
 	}
+	state, err := refState(tmp)
+	if err != nil {
+		return err
+	}
 	if err := exec.Command("git", "-C", tmp, "config", "attic.bundleSHA256", digest).Run(); err != nil {
+		return err
+	}
+	if err := exec.Command("git", "-C", tmp, "config", "attic.refStateSHA256", state).Run(); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		return err
 	}
 	return os.Remove(bundle)
+}
+
+func refState(repo string) (string, error) {
+	refs, err := exec.Command("git", "-C", repo, "show-ref").Output()
+	if err != nil {
+		return "", err
+	}
+	head, err := exec.Command("git", "-C", repo, "symbolic-ref", "-q", "HEAD").Output()
+	if err != nil {
+		// A detached HEAD is valid in a bare repository; include its object ID.
+		head, err = exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
+		if err != nil {
+			return "", err
+		}
+	}
+	lines := strings.Split(strings.TrimSpace(string(refs)), "\n")
+	sort.Strings(lines)
+	h := sha256.New()
+	io.WriteString(h, strings.TrimSpace(string(head))+"\n")
+	io.WriteString(h, strings.Join(lines, "\n")+"\n")
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func compareRefs(bundle, repo string) error {

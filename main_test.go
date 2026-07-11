@@ -35,7 +35,7 @@ func TestCleanRejectsChangesAndUntrackedFiles(t *testing.T) {
 
 func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 	repo := testRepo(t)
-	runGit(t, repo, "tag", "v1")
+	runGit(t, repo, "tag", "-a", "v1", "-m", "version one")
 	runGit(t, repo, "branch", "old")
 	bundle := filepath.Join(t.TempDir(), "repo.bundle")
 	runGit(t, repo, "bundle", "create", bundle, "--all")
@@ -78,6 +78,10 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 		if !strings.Contains(refs, ref) {
 			t.Errorf("archive missing %s", ref)
 		}
+	}
+	runGit(t, archivedRepo, "update-ref", "refs/heads/after-archive", "HEAD")
+	if archived(root, "project", digest) {
+		t.Fatal("mutated remote repository was accepted as the original archive")
 	}
 
 	ts := httptest.NewServer(webHandler(root))

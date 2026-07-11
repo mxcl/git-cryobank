@@ -21,13 +21,8 @@ git attic HOST [PATH]
 
 ## Install
 
-Build the same binary on the client and server (or copy a compatible build):
-
-```sh
-go install github.com/mxcl/git-attic@latest
-```
-
-During local development:
+From this checkout, build the same binary on the client and server (or copy a
+compatible build):
 
 ```sh
 go build -o git-attic .
@@ -92,12 +87,15 @@ The client performs these steps:
 4. Resume any partial upload with the same hash over SSH.
 5. Ask the server to hash the complete bundle, clone it as a bare mirror, and
    compare every archived ref with the bundle.
-6. Require the server's exact content-hash confirmation.
+6. Record a fingerprint of every ref and symbolic `HEAD`, then require the
+   server's exact content-hash confirmation.
 7. Invoke `/usr/bin/trash` on the local repository root.
 
 If SSH drops, verification fails, the name collides, or Trash itself fails,
 the local repository remains where it is. Retrying is safe: partial uploads
-resume, and a previously verified archive with the same hash is idempotent.
+resume, and a previously verified archive with the same hash and unchanged
+remote refs is idempotent. If someone pushes to the bare repository afterward,
+a retry will stop instead of treating the changed remote as the original.
 
 Ignored files are not part of Git and are not archived; like the rest of the
 working directory, they move to Trash after verification.
