@@ -17,7 +17,7 @@ import (
 
 const usage = `git cryobank HOST [PATH]
 git-cryobank init ROOT
-git-cryobank serve [--root DIR] [--listen ADDR]
+git-cryobank serve [--listen ADDR]
 
 Archives a clean repository over SSH, verifies it remotely, then moves the
 local repository to the macOS Trash. PATH defaults to the current directory.`

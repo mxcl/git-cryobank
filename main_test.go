@@ -51,7 +51,7 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	t.Setenv("GIT_ATTIC_ROOT", root)
+	setArchiveRoot(t, root)
 	data, err := os.ReadFile(bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -110,33 +110,28 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 }
 
 func TestRejectsUnsafeArchiveName(t *testing.T) {
-	t.Setenv("GIT_ATTIC_ROOT", t.TempDir())
+	setArchiveRoot(t, t.TempDir())
 	if err := remote([]string{"probe", "../escape", strings.Repeat("a", 64), "10"}); err == nil {
 		t.Fatal("unsafe archive name accepted")
 	}
 }
 
-func TestArchiveRootEnvironmentPrecedence(t *testing.T) {
-	home := t.TempDir()
-	configRoot := filepath.Join(home, "from-config")
-	configDir := filepath.Join(home, ".config", "git-cryobank")
-	if err := os.MkdirAll(configDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(configDir, "root"), []byte(configRoot+"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("GIT_ATTIC_ROOT", filepath.Join(home, "legacy-env"))
-	t.Setenv("ATTIC", filepath.Join(home, "attic-env"))
-	want := filepath.Join(home, "cryobank-env")
-	t.Setenv("CRYOBANK", want)
+func TestArchiveRootUsesConfig(t *testing.T) {
+	want := t.TempDir()
+	setArchiveRoot(t, want)
 	got, err := archiveRoot()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != want {
-		t.Fatalf("archiveRoot() = %q, want CRYOBANK value %q", got, want)
+		t.Fatalf("archiveRoot() = %q, want configured value %q", got, want)
+	}
+}
+
+func TestArchiveRootRequiresConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if _, err := archiveRoot(); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("archiveRoot() error = %v, want configuration error", err)
 	}
 }
 
@@ -168,6 +163,19 @@ func testRepo(t *testing.T) string {
 	runGit(t, repo, "add", "README.md")
 	runGit(t, repo, "commit", "-m", "initial")
 	return repo
+}
+
+func setArchiveRoot(t *testing.T, root string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".config", "git-cryobank")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "root"), []byte(root+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {

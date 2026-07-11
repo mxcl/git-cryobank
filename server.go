@@ -25,15 +25,6 @@ var (
 )
 
 func archiveRoot() (string, error) {
-	if root := os.Getenv("CRYOBANK"); root != "" {
-		return filepath.Abs(root)
-	}
-	if root := os.Getenv("ATTIC"); root != "" {
-		return filepath.Abs(root)
-	}
-	if root := os.Getenv("GIT_ATTIC_ROOT"); root != "" {
-		return filepath.Abs(root)
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -45,10 +36,11 @@ func archiveRoot() (string, error) {
 			return "", errors.New("configured archive root is empty")
 		}
 		return filepath.Abs(root)
-	} else if !errors.Is(err, os.ErrNotExist) {
+	} else if errors.Is(err, os.ErrNotExist) {
+		return "", errors.New("cryobank is not configured; run git-cryobank init ROOT")
+	} else {
 		return "", err
 	}
-	return filepath.Join(home, "Cryobank"), nil
 }
 
 func initialize(args []string) error {
@@ -308,13 +300,8 @@ func serve(args []string) error {
 		return err
 	}
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	rootFlag := fs.String("root", root, "directory containing bare repositories")
 	listen := fs.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	root, err = filepath.Abs(*rootFlag)
-	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(root, 0700); err != nil {

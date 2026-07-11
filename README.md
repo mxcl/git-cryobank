@@ -67,19 +67,9 @@ Trash operation leaves your local checkout where it is.
 ## Choose the cryobank
 
 `git-cryobank init DIR` writes the location to
-`~/.config/git-cryobank/root`. This is the recommended setup because SSH upload
-commands and the web server then agree without ceremony.
-
-Or set it for a process:
-
-```sh
-$ CRYOBANK=/Volumes/Tundra/Attic git-cryobank serve
-```
-
-`CRYOBANK` wins over `ATTIC`, `GIT_ATTIC_ROOT`, the config file, and the default
-`~/Cryobank`, in that order. Environment variables passed to `serve` do not
-magically enter later SSH sessions. Shells remain stubbornly separate
-processes.
+`~/.config/git-cryobank/root`. It is the only way to choose storage, ensuring
+SSH upload commands and the web server always agree. Without it,
+`git-cryobank` refuses to start or accept an archive.
 
 > [!WARNING]
 > Ensure external storage is mounted before starting the server. Also, the web
