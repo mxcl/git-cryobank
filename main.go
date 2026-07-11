@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -189,8 +188,3 @@ func output(dir, name string, args ...string) (string, error) {
 	b, err := cmd.Output()
 	return string(b), err
 }
-
-func serve(args []string) error  { return errors.New("serve not implemented") }
-func remote(args []string) error { return errors.New("remote receiver not implemented") }
-
-var _ = flag.ErrHelp
