@@ -72,7 +72,7 @@ func archive(args []string) error {
 	bundle := tmp.Name()
 	tmp.Close()
 	defer os.Remove(bundle)
-	if err := command(repo, "git", "bundle", "create", bundle, "--all"); err != nil {
+	if err := command(repo, "git", "bundle", "create", bundle, "--all", "HEAD"); err != nil {
 		return err
 	}
 	digest, size, err := fileDigest(bundle)

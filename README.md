@@ -83,7 +83,8 @@ The client performs these steps:
 
 1. Resolve the working-tree root and require a valid `HEAD`.
 2. Reject staged changes, worktree changes, and non-ignored untracked files.
-3. Create a Git bundle containing every ref (`--all`) and hash it with SHA-256.
+3. Create a Git bundle containing every ref plus `HEAD` (including a detached
+   `HEAD`) and hash it with SHA-256.
 4. Resume any partial upload with the same hash over SSH.
 5. Ask the server to hash the complete bundle, clone it as a bare mirror, and
    compare every archived ref with the bundle.

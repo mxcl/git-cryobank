@@ -37,8 +37,15 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 	repo := testRepo(t)
 	runGit(t, repo, "tag", "-a", "v1", "-m", "version one")
 	runGit(t, repo, "branch", "old")
+	runGit(t, repo, "switch", "--detach")
+	if err := os.WriteFile(filepath.Join(repo, "detached.txt"), []byte("preserved\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "detached.txt")
+	runGit(t, repo, "commit", "-m", "detached head")
+	head := strings.TrimSpace(runGit(t, repo, "rev-parse", "HEAD"))
 	bundle := filepath.Join(t.TempDir(), "repo.bundle")
-	runGit(t, repo, "bundle", "create", bundle, "--all")
+	runGit(t, repo, "bundle", "create", bundle, "--all", "HEAD")
 	digest, size, err := fileDigest(bundle)
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +80,9 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 		t.Fatalf("idempotent commit: %v", err)
 	}
 	archivedRepo := filepath.Join(root, "project.git")
+	if got := strings.TrimSpace(runGit(t, archivedRepo, "rev-parse", "HEAD")); got != head {
+		t.Fatalf("archived HEAD = %s, want %s", got, head)
+	}
 	refs := runGit(t, archivedRepo, "show-ref")
 	for _, ref := range []string{"refs/heads/main", "refs/heads/old", "refs/tags/v1"} {
 		if !strings.Contains(refs, ref) {
