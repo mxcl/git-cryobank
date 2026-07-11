@@ -25,6 +25,9 @@ var (
 )
 
 func archiveRoot() (string, error) {
+	if root := os.Getenv("ATTIC"); root != "" {
+		return filepath.Abs(root)
+	}
 	if root := os.Getenv("GIT_ATTIC_ROOT"); root != "" {
 		return filepath.Abs(root)
 	}

@@ -116,6 +116,29 @@ func TestRejectsUnsafeArchiveName(t *testing.T) {
 	}
 }
 
+func TestArchiveRootEnvironmentPrecedence(t *testing.T) {
+	home := t.TempDir()
+	configRoot := filepath.Join(home, "from-config")
+	configDir := filepath.Join(home, ".config", "git-attic")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "root"), []byte(configRoot+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("GIT_ATTIC_ROOT", filepath.Join(home, "legacy-env"))
+	want := filepath.Join(home, "attic-env")
+	t.Setenv("ATTIC", want)
+	got, err := archiveRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("archiveRoot() = %q, want ATTIC value %q", got, want)
+	}
+}
+
 func TestRefStateChangesWithHEADAndRefs(t *testing.T) {
 	repo := testRepo(t)
 	before, err := refState(repo)

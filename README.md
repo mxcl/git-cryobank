@@ -46,8 +46,17 @@ git-attic serve --listen 127.0.0.1:8080
 ```
 
 `init` records the absolute root in `~/.config/git-attic/root`, so web serving
-and non-interactive SSH receiver commands use the same directory. The
-`GIT_ATTIC_ROOT` environment variable overrides that file when needed.
+and non-interactive SSH receiver commands use the same directory. `ATTIC`
+overrides that file (and the older `GIT_ATTIC_ROOT` variable), so the web server
+can instead be started with:
+
+```sh
+ATTIC=/Volumes/Tundra/Attic git-attic serve --listen 127.0.0.1:8080
+```
+
+That environment belongs only to the server process. Archive uploads run as
+separate SSH commands, so use `git-attic init` for those or arrange for
+`ATTIC` to be set in pangolin's non-interactive SSH environment too.
 
 Open <http://127.0.0.1:8080>. To expose it to the LAN, bind an appropriate
 interface, for example `--listen 0.0.0.0:8080`; the initial web UI has no HTTP
