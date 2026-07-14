@@ -16,44 +16,63 @@ import (
 )
 
 const usage = `git cryobank [PATH]
-git-cryobank target HOST
-git-cryobank init ROOT
-git-cryobank serve [--listen ADDR]
+git freeze [PATH]
+git thaw NAME [PATH]
+cryobank init ROOT
+cryobank serve [--listen ADDR]
+cryobank shell
 
-Archives a clean repository over SSH, verifies it remotely, then moves the
-local repository to the macOS Trash. PATH defaults to the current directory.`
+Freeze uploads a repository over SSH, verifies it remotely, then moves the
+local checkout to the macOS Trash. Configure the host with:
+
+    git config --global cryobank.host HOST`
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "git-cryobank:", err)
+	name := filepath.Base(os.Args[0])
+	var err error
+	switch name {
+	case "git-freeze":
+		err = freeze(os.Args[1:])
+	case "git-thaw":
+		err = thaw(os.Args[1:])
+	default:
+		err = run(os.Args[1:])
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, name+":", err)
 		os.Exit(1)
 	}
 }
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return archive(nil)
+		fmt.Println(usage)
+		return nil
 	}
 	switch args[0] {
-	case "target":
-		return configureTarget(args[1:])
 	case "init":
 		return initialize(args[1:])
 	case "serve":
 		return serve(args[1:])
+	case "shell":
+		return shell(args[1:])
 	case "probe", "upload", "commit":
 		return remote(args)
+	case "freeze":
+		return freeze(args[1:])
+	case "thaw":
+		return thaw(args[1:])
 	case "-h", "--help", "help":
 		fmt.Println(usage)
 		return nil
 	default:
-		return archive(args)
+		return errors.New("unknown command; run cryobank --help")
 	}
 }
 
-func archive(args []string) error {
+func freeze(args []string) error {
 	if len(args) > 1 {
-		return errors.New("usage: git cryobank [PATH]")
+		return errors.New("usage: git freeze [PATH]")
 	}
 	host, err := archiveTarget()
 	if err != nil {
@@ -67,9 +86,11 @@ func archive(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := clean(repo); err != nil {
+	snapshot, restoreRef, err := freezeSnapshot(repo, true)
+	if err != nil {
 		return err
 	}
+	defer restoreRef()
 	initialState, err := refState(repo)
 	if err != nil {
 		return fmt.Errorf("cannot fingerprint local refs: %w", err)
@@ -122,8 +143,9 @@ func archive(args []string) error {
 	if strings.TrimSpace(confirmation) != "archived "+digest {
 		return fmt.Errorf("remote verification failed: %s", strings.TrimSpace(confirmation))
 	}
-	if err := clean(repo); err != nil {
-		return fmt.Errorf("remote archive verified, but the local repository changed during upload: %w", err)
+	currentSnapshot, _, err := freezeSnapshot(repo, false)
+	if err != nil || currentSnapshot != snapshot {
+		return errors.New("remote archive verified, but the working tree changed during upload; nothing was moved to Trash")
 	}
 	currentState, err := refState(repo)
 	if err != nil || currentState != initialState {
@@ -135,31 +157,153 @@ func archive(args []string) error {
 	if err := command("", "/usr/bin/trash", repo); err != nil {
 		return fmt.Errorf("remote archive verified, but moving local repository to Trash failed: %w", err)
 	}
-	fmt.Printf("Archived %s to %s as %s and moved it to Trash.\n", repo, host, name)
+	fmt.Printf("Froze %s to %s as %s and moved it to Trash.\n", repo, host, name)
 	return nil
 }
 
-func configureTarget(args []string) error {
-	if len(args) != 1 || !validHost(args[0]) {
-		return errors.New("usage: git-cryobank target HOST")
+type snapshotState struct {
+	Tree, Base, Branch string
+}
+
+func freezeSnapshot(repo string, writeRef bool) (snapshotState, func(), error) {
+	base, err := output(repo, "git", "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return snapshotState{}, func() {}, errors.New("repository has no HEAD commit")
 	}
-	if err := writeConfig("target", args[0]); err != nil {
+	base = strings.TrimSpace(base)
+	branch, _ := output(repo, "git", "symbolic-ref", "--short", "-q", "HEAD")
+	branch = strings.TrimSpace(branch)
+
+	index, err := os.CreateTemp("", "git-freeze-index-*")
+	if err != nil {
+		return snapshotState{}, func() {}, err
+	}
+	indexPath := index.Name()
+	index.Close()
+	os.Remove(indexPath)
+	defer os.Remove(indexPath)
+	env := append(os.Environ(), "GIT_INDEX_FILE="+indexPath)
+	if err := commandEnv(repo, env, nil, "git", "read-tree", "HEAD"); err != nil {
+		return snapshotState{}, func() {}, err
+	}
+	if err := commandEnv(repo, env, nil, "git", "add", "-A", "--", "."); err != nil {
+		return snapshotState{}, func() {}, err
+	}
+	tree, err := outputEnv(repo, env, "git", "write-tree")
+	state := snapshotState{strings.TrimSpace(tree), base, branch}
+	if err != nil || !writeRef {
+		return state, func() {}, err
+	}
+
+	ref := "refs/cryobank/freeze"
+	previous, previousErr := output(repo, "git", "rev-parse", "--verify", ref)
+	message := fmt.Sprintf("Cryobank freeze\n\nCryobank-Base: %s\nCryobank-Branch: %s\n", base, branch)
+	commitEnv := append(os.Environ(),
+		"GIT_AUTHOR_NAME=Cryobank", "GIT_AUTHOR_EMAIL=cryobank@localhost",
+		"GIT_COMMITTER_NAME=Cryobank", "GIT_COMMITTER_EMAIL=cryobank@localhost")
+	oid, err := outputInputEnv(repo, commitEnv, strings.NewReader(message), "git", "commit-tree", state.Tree, "-p", base)
+	if err != nil {
+		return snapshotState{}, func() {}, err
+	}
+	if err := command(repo, "git", "update-ref", ref, strings.TrimSpace(oid)); err != nil {
+		return snapshotState{}, func() {}, err
+	}
+	restore := func() {
+		if previousErr == nil {
+			_ = command(repo, "git", "update-ref", ref, strings.TrimSpace(previous))
+		} else {
+			_ = command(repo, "git", "update-ref", "-d", ref)
+		}
+	}
+	return state, restore, nil
+}
+
+func thaw(args []string) error {
+	if len(args) < 1 || len(args) > 2 {
+		return errors.New("usage: git thaw NAME [PATH]")
+	}
+	name := strings.TrimSuffix(args[0], ".git")
+	if !safeName.MatchString(name) || name == "." || name == ".." {
+		return errors.New("invalid repository name")
+	}
+	host, err := archiveTarget()
+	if err != nil {
 		return err
 	}
-	fmt.Println("Cryobank target configured as", args[0])
+	dest := name
+	if len(args) == 2 {
+		dest = args[1]
+	}
+	if err := command("", "git", "clone", host+":"+name+".git", dest); err != nil {
+		return err
+	}
+	repo, err := filepath.Abs(dest)
+	if err != nil {
+		return err
+	}
+	if err := command(repo, "git", "fetch", "origin", "+refs/cryobank/freeze:refs/cryobank/freeze"); err != nil {
+		return fmt.Errorf("clone succeeded but freeze state could not be fetched: %w", err)
+	}
+	if stash, _ := output(repo, "git", "ls-remote", "origin", "refs/stash"); strings.TrimSpace(stash) != "" {
+		if err := command(repo, "git", "fetch", "origin", "+refs/stash:refs/stash"); err != nil {
+			return fmt.Errorf("clone succeeded but stashes could not be fetched: %w", err)
+		}
+	}
+	message, err := output(repo, "git", "show", "-s", "--format=%B", "refs/cryobank/freeze")
+	if err != nil {
+		return err
+	}
+	base := trailer(message, "Cryobank-Base")
+	branch := trailer(message, "Cryobank-Branch")
+	if base == "" {
+		return errors.New("freeze snapshot is missing its base commit")
+	}
+	if branch == "" {
+		if err := command(repo, "git", "checkout", "--detach", base); err != nil {
+			return err
+		}
+	} else if current, _ := output(repo, "git", "symbolic-ref", "--short", "-q", "HEAD"); strings.TrimSpace(current) != branch {
+		if _, err := output(repo, "git", "rev-parse", "--verify", "refs/heads/"+branch); err == nil {
+			err = command(repo, "git", "checkout", branch)
+		} else {
+			err = command(repo, "git", "checkout", "-b", branch, "origin/"+branch)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	patch, err := output(repo, "git", "diff", "--binary", base, "refs/cryobank/freeze")
+	if err != nil {
+		return err
+	}
+	if patch != "" {
+		if err := commandEnv(repo, os.Environ(), strings.NewReader(patch), "git", "apply", "--binary"); err != nil {
+			return fmt.Errorf("checkout restored but working changes could not be applied: %w", err)
+		}
+	}
+	_, _ = ssh(host, nil, "activate", name)
+	fmt.Printf("Thawed %s into %s.\n", name, repo)
 	return nil
+}
+
+func trailer(message, key string) string {
+	prefix := key + ":"
+	for _, line := range strings.Split(message, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		}
+	}
+	return ""
 }
 
 func archiveTarget() (string, error) {
-	target, err := readConfig("target")
-	if errors.Is(err, os.ErrNotExist) {
-		return "", errors.New("target is not configured; run git-cryobank target HOST")
-	}
+	target, err := output("", "git", "config", "--global", "--get", "cryobank.host")
 	if err != nil {
-		return "", err
+		return "", errors.New("host is not configured; run: git config --global cryobank.host HOST")
 	}
+	target = strings.TrimSpace(target)
 	if !validHost(target) {
-		return "", errors.New("configured target is invalid; run git-cryobank target HOST")
+		return "", errors.New("configured cryobank.host is invalid")
 	}
 	return target, nil
 }
@@ -212,7 +356,7 @@ func ssh(host string, stdin io.Reader, args ...string) (string, error) {
 	if !validHost(host) {
 		return "", errors.New("invalid SSH host")
 	}
-	remoteCommand := "git-cryobank " + strings.Join(args, " ")
+	remoteCommand := "cryobank " + strings.Join(args, " ")
 	cmd := exec.Command("ssh", "--", host, remoteCommand)
 	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
@@ -260,15 +404,31 @@ func configPath(name string) (string, error) {
 }
 
 func command(dir, name string, args ...string) error {
+	return commandEnv(dir, os.Environ(), nil, name, args...)
+}
+
+func commandEnv(dir string, env []string, stdin io.Reader, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
+	cmd.Env = env
+	cmd.Stdin = stdin
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	return cmd.Run()
 }
 
 func output(dir, name string, args ...string) (string, error) {
+	return outputEnv(dir, os.Environ(), name, args...)
+}
+
+func outputEnv(dir string, env []string, name string, args ...string) (string, error) {
+	return outputInputEnv(dir, env, nil, name, args...)
+}
+
+func outputInputEnv(dir string, env []string, stdin io.Reader, name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
+	cmd.Env = env
+	cmd.Stdin = stdin
 	b, err := cmd.Output()
 	return string(b), err
 }

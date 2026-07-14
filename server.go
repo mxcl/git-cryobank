@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -57,6 +58,22 @@ func initialize(args []string) error {
 }
 
 func remote(args []string) error {
+	if len(args) == 2 && args[0] == "activate" {
+		name := args[1]
+		if !safeName.MatchString(name) || name == "." || name == ".." {
+			return errors.New("invalid repository name")
+		}
+		root, err := archiveRoot()
+		if err != nil {
+			return err
+		}
+		repo := filepath.Join(root, name+".git")
+		if info, err := os.Stat(repo); err != nil || !info.IsDir() {
+			return errors.New("repository does not exist")
+		}
+		_ = exec.Command("git", "-C", repo, "config", "--unset-all", "cryobank.frozenAt").Run()
+		return exec.Command("git", "-C", repo, "config", "cryobank.activeAt", time.Now().UTC().Format(time.RFC3339)).Run()
+	}
 	if len(args) != 4 && len(args) != 5 {
 		return errors.New("invalid receiver command")
 	}
@@ -215,10 +232,72 @@ func finalize(root, name, digest string, size int64, bundle string) error {
 	if err := exec.Command("git", "-C", tmp, "config", "cryobank.refStateSHA256", state).Run(); err != nil {
 		return err
 	}
+	if err := exec.Command("git", "-C", tmp, "config", "cryobank.frozenAt", time.Now().UTC().Format(time.RFC3339)).Run(); err != nil {
+		return err
+	}
 	if err := os.Rename(tmp, dest); err != nil {
 		return err
 	}
 	return os.Remove(bundle)
+}
+
+var gitCommand = regexp.MustCompile(`^(git-upload-pack|git-receive-pack) ['"]?([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\.git)?['"]?$`)
+
+// shell is intended for an authorized_keys forced command. It turns a single
+// SSH host into a safe Git remote without exposing the archive root path.
+func shell(args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: cryobank shell")
+	}
+	original := strings.TrimSpace(os.Getenv("SSH_ORIGINAL_COMMAND"))
+	if fields := strings.Fields(original); len(fields) >= 2 && fields[0] == "cryobank" {
+		return remote(fields[1:])
+	}
+	m := gitCommand.FindStringSubmatch(original)
+	if m == nil {
+		return errors.New("only Git upload and receive commands are allowed")
+	}
+	root, err := archiveRoot()
+	if err != nil {
+		return err
+	}
+	name := strings.TrimSuffix(m[2], ".git")
+	repo := filepath.Join(root, name+".git")
+	if m[1] == "git-receive-pack" {
+		if _, err := os.Stat(repo); errors.Is(err, os.ErrNotExist) {
+			if out, err := exec.Command("git", "init", "--bare", repo).CombinedOutput(); err != nil {
+				return fmt.Errorf("cannot create repository: %w: %s", err, strings.TrimSpace(string(out)))
+			}
+		} else if err != nil {
+			return err
+		}
+	} else if info, err := os.Stat(repo); err != nil || !info.IsDir() {
+		return errors.New("repository does not exist")
+	}
+	cmd := exec.Command(m[1], repo)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	if m[1] == "git-receive-pack" {
+		_ = exec.Command("git", "-C", repo, "config", "--unset-all", "cryobank.frozenAt").Run()
+		_ = exec.Command("git", "-C", repo, "config", "cryobank.activeAt", time.Now().UTC().Format(time.RFC3339)).Run()
+		setDefaultBranch(repo)
+	}
+	return nil
+}
+
+func setDefaultBranch(repo string) {
+	if exec.Command("git", "-C", repo, "rev-parse", "--verify", "HEAD").Run() == nil {
+		return
+	}
+	out, err := exec.Command("git", "-C", repo, "for-each-ref", "--format=%(refname)", "refs/heads/main", "refs/heads").Output()
+	if err != nil {
+		return
+	}
+	if refs := strings.Fields(string(out)); len(refs) > 0 {
+		_ = exec.Command("git", "-C", repo, "symbolic-ref", "HEAD", refs[0]).Run()
+	}
 }
 
 func refState(repo string) (string, error) {

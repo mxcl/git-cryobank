@@ -136,11 +136,9 @@ func TestArchiveRootUsesConfig(t *testing.T) {
 	}
 }
 
-func TestConfigureTarget(t *testing.T) {
+func TestArchiveTargetUsesGitConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	if err := configureTarget([]string{"pangolin"}); err != nil {
-		t.Fatal(err)
-	}
+	runGit(t, "", "config", "--global", "cryobank.host", "pangolin")
 	got, err := archiveTarget()
 	if err != nil {
 		t.Fatal(err)
@@ -148,8 +146,9 @@ func TestConfigureTarget(t *testing.T) {
 	if got != "pangolin" {
 		t.Fatalf("archiveTarget() = %q, want pangolin", got)
 	}
-	if err := configureTarget([]string{"-unsafe"}); err == nil {
-		t.Fatal("configureTarget accepted an option as a host")
+	runGit(t, "", "config", "--global", "cryobank.host", "-unsafe")
+	if _, err := archiveTarget(); err == nil {
+		t.Fatal("archiveTarget accepted an unsafe host")
 	}
 }
 
@@ -180,6 +179,30 @@ func TestRefStateChangesWithHEADAndRefs(t *testing.T) {
 	}
 	if before == after {
 		t.Fatal("ref fingerprint did not change after adding a branch")
+	}
+}
+
+func TestFreezeSnapshotCapturesDirtyAndUntrackedFiles(t *testing.T) {
+	repo := testRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("new\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	state, restore, err := freezeSnapshot(repo, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore()
+	if got := strings.TrimSpace(runGit(t, repo, "show", "refs/cryobank/freeze:README.md")); got != "changed" {
+		t.Fatalf("snapshot README = %q", got)
+	}
+	if got := strings.TrimSpace(runGit(t, repo, "show", "refs/cryobank/freeze:new.txt")); got != "new" {
+		t.Fatalf("snapshot new.txt = %q", got)
+	}
+	if state.Branch != "main" || state.Base == "" || state.Tree == "" {
+		t.Fatalf("snapshot state = %#v", state)
 	}
 }
 
