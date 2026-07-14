@@ -92,8 +92,9 @@ Before touching the checkout, Cryobank:
 4. Checks that the checkout did not change during the upload.
 5. Calls the macOS `/usr/bin/trash` command.
 
-Ignored files stay behind. They often contain builds, dependencies, caches, or
-secrets and do not belong in Git storage.
+Cryobank does not upload ignored files. They often contain builds, dependencies,
+caches, or secrets. `git freeze` moves them to Trash with the checkout, and
+`git thaw` cannot restore them.
 
 Bring a project back with:
 

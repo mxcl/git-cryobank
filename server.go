@@ -22,6 +22,7 @@ import (
 var (
 	safeName   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	safeDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	safeOID    = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 	safeRef    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 )
 

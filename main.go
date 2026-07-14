@@ -176,6 +176,9 @@ func freezeSnapshot(repo string, writeRef bool) (snapshotState, func(), error) {
 	base = strings.TrimSpace(base)
 	branch, _ := output(repo, "git", "symbolic-ref", "--short", "-q", "HEAD")
 	branch = strings.TrimSpace(branch)
+	if branch != "" && !validBranch(repo, branch) {
+		return snapshotState{}, func() {}, fmt.Errorf("branch name %q cannot be frozen", branch)
+	}
 
 	index, err := os.CreateTemp("", "git-freeze-index-*")
 	if err != nil {
@@ -256,14 +259,28 @@ func thaw(args []string) error {
 			return fmt.Errorf("clone succeeded but stashes could not be fetched: %w", err)
 		}
 	}
+	if err := restoreSnapshot(repo); err != nil {
+		return err
+	}
+	if _, err := ssh(host, nil, "activate", name); err != nil {
+		return fmt.Errorf("checkout restored, but Cryobank could not mark it active: %w", err)
+	}
+	fmt.Printf("Thawed %s into %s.\n", name, repo)
+	return nil
+}
+
+func restoreSnapshot(repo string) error {
 	message, err := output(repo, "git", "show", "-s", "--format=%B", "refs/cryobank/freeze")
 	if err != nil {
 		return err
 	}
 	base := trailer(message, "Cryobank-Base")
 	branch := trailer(message, "Cryobank-Branch")
-	if base == "" {
-		return errors.New("freeze snapshot is missing its base commit")
+	if !safeOID.MatchString(base) {
+		return errors.New("freeze snapshot has an invalid base commit")
+	}
+	if branch != "" && !validBranch(repo, branch) {
+		return errors.New("freeze snapshot has an invalid branch")
 	}
 	if branch == "" {
 		if err := command(repo, "git", "checkout", "--detach", base); err != nil {
@@ -288,11 +305,11 @@ func thaw(args []string) error {
 			return fmt.Errorf("checkout restored but working changes could not be applied: %w", err)
 		}
 	}
-	if _, err := ssh(host, nil, "activate", name); err != nil {
-		return fmt.Errorf("checkout restored, but Cryobank could not mark it active: %w", err)
-	}
-	fmt.Printf("Thawed %s into %s.\n", name, repo)
 	return nil
+}
+
+func validBranch(repo, branch string) bool {
+	return exec.Command("git", "-C", repo, "check-ref-format", "--branch", branch).Run() == nil
 }
 
 func trailer(message, key string) string {

@@ -207,6 +207,35 @@ func TestFreezeSnapshotCapturesDirtyAndUntrackedFiles(t *testing.T) {
 	}
 }
 
+func TestRestoreSnapshotRecreatesDirtyCheckout(t *testing.T) {
+	source := testRepo(t)
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("changed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "untracked.txt"), []byte("keep me\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, restoreRef, err := freezeSnapshot(source, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restoreRef()
+	bare := filepath.Join(t.TempDir(), "project.git")
+	runGit(t, "", "clone", "--mirror", source, bare)
+	dest := filepath.Join(t.TempDir(), "project")
+	runGit(t, "", "clone", bare, dest)
+	runGit(t, dest, "fetch", "origin", "+refs/cryobank/freeze:refs/cryobank/freeze")
+	if err := restoreSnapshot(dest); err != nil {
+		t.Fatal(err)
+	}
+	status := runGit(t, dest, "status", "--porcelain=v1")
+	for _, want := range []string{" M README.md", "?? untracked.txt"} {
+		if !strings.Contains(status, want) {
+			t.Errorf("restored status missing %q:\n%s", want, status)
+		}
+	}
+}
+
 func TestShellPushAndClone(t *testing.T) {
 	root := t.TempDir()
 	setConfig(t, "root", root)
