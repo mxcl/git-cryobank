@@ -28,7 +28,7 @@ var (
 func archiveRoot() (string, error) {
 	root, err := readConfig("root")
 	if errors.Is(err, os.ErrNotExist) {
-		return "", errors.New("cryobank is not configured; run git-cryobank init ROOT")
+		return "", errors.New("cryobank is not configured; run: cryobank init ROOT")
 	}
 	if err != nil {
 		return "", err
@@ -41,7 +41,7 @@ func archiveRoot() (string, error) {
 
 func initialize(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: git-cryobank init ROOT")
+		return errors.New("usage: cryobank init ROOT")
 	}
 	root, err := filepath.Abs(args[0])
 	if err != nil {
@@ -373,22 +373,26 @@ func serve(args []string) error {
 }
 
 type repoView struct {
-	Name, Ref, Path, Content string
-	Repos                    []string
-	Files                    []string
-	Branches                 []branchView
-	Commits                  []commitView
+	Name, Ref, Path, Content, Status string
+	Repos                            []repoCard
+	Files                            []string
+	Branches                         []branchView
+	Commits                          []commitView
 }
 type branchView struct{ Name, Ref string }
 type commitView struct{ Hash, Subject, Date string }
+type repoCard struct {
+	Name, Status, Activity string
+	When                   time.Time
+}
 
 var page = template.Must(template.New("page").Parse(`<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>git-cryobank</title>
-<style>body{font:16px system-ui;max-width:72rem;margin:3rem auto;padding:0 1rem;color:#222}a{color:#075985}pre{background:#f4f4f5;padding:1rem;overflow:auto}li{margin:.35rem 0}.muted{color:#71717a}</style></head><body>
-<h1><a href="/">git-cryobank</a>{{if .Name}} / {{.Name}}{{end}}</h1>
-{{if .Repos}}<ul>{{range .Repos}}<li><a href="/{{.}}/">{{.}}</a></li>{{end}}</ul>{{end}}
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Cryobank</title>
+<style>body{font:16px system-ui;max-width:72rem;margin:3rem auto;padding:0 1rem;color:#222}a{color:#075985}pre{background:#f4f4f5;padding:1rem;overflow:auto}li{margin:.35rem 0}.muted{color:#71717a}.feed{list-style:none;padding:0}.feed li{display:flex;gap:1rem;padding:.8rem 0;border-bottom:1px solid #e4e4e7}.feed a{font-weight:600;min-width:14rem}.status{margin-left:auto}.frozen{color:#0369a1}.deep-archive{color:#52525b}</style></head><body>
+<h1><a href="/">Cryobank</a>{{if .Name}} / {{.Name}}{{end}}</h1>
+{{if .Repos}}<h2>Projects</h2><ul class="feed">{{range .Repos}}<li><a href="/{{.Name}}/">{{.Name}}</a><span class="muted">{{.Activity}}</span><span class="status {{.Status}}">{{.Status}}</span></li>{{end}}</ul>{{end}}
 {{if .Name}}{{if .Content}}<pre>{{.Content}}</pre>{{else}}
-<p><a href="/{{.Name}}/tree?ref={{.Ref}}">Files</a> · <span class="muted">read-only bare repository</span></p>
+<p><a href="/{{.Name}}/tree?ref={{.Ref}}">Files</a> · <span class="{{.Status}}">{{.Status}}</span> · <span class="muted">read-only bare repository</span></p>
 {{if .Files}}<ul>{{range .Files}}<li><a href="/{{$.Name}}/blob?ref={{$.Ref}}&path={{urlquery .}}">{{.}}</a></li>{{end}}</ul>{{end}}
 {{if .Branches}}<h2>Branches</h2><ul>{{range .Branches}}<li><a href="/{{$.Name}}/tree?ref={{urlquery .Ref}}">{{.Name}}</a></li>{{end}}</ul>{{end}}
 {{if .Commits}}<h2>Recent commits</h2><ul>{{range .Commits}}<li><code>{{.Hash}}</code> {{.Subject}} <span class="muted">{{.Date}}</span></li>{{end}}</ul>{{end}}
@@ -428,12 +432,16 @@ func webHandler(root string) http.Handler {
 			http.Error(w, "invalid ref", 400)
 			return
 		}
-		view := repoView{Name: name, Ref: ref}
+		card, err := repositoryCard(root, name)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		view := repoView{Name: name, Ref: ref, Status: card.Status}
 		mode := "summary"
 		if len(parts) > 1 {
 			mode = parts[1]
 		}
-		var err error
 		switch mode {
 		case "", "summary":
 			view.Commits, err = recentCommits(repo, ref)
@@ -457,19 +465,50 @@ func webHandler(root string) http.Handler {
 	})
 }
 
-func listRepos(root string) ([]string, error) {
+func listRepos(root string) ([]repoCard, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
-	var repos []string
+	var repos []repoCard
 	for _, entry := range entries {
 		if entry.IsDir() && strings.HasSuffix(entry.Name(), ".git") {
-			repos = append(repos, strings.TrimSuffix(entry.Name(), ".git"))
+			card, err := repositoryCard(root, strings.TrimSuffix(entry.Name(), ".git"))
+			if err != nil {
+				return nil, err
+			}
+			repos = append(repos, card)
 		}
 	}
-	sort.Strings(repos)
+	sort.Slice(repos, func(i, j int) bool { return repos[i].When.After(repos[j].When) })
 	return repos, nil
+}
+
+func repositoryCard(root, name string) (repoCard, error) {
+	repo := filepath.Join(root, name+".git")
+	status := "active"
+	var when time.Time
+	if text, err := exec.Command("git", "-C", repo, "config", "--get", "cryobank.frozenAt").Output(); err == nil {
+		when, _ = time.Parse(time.RFC3339, strings.TrimSpace(string(text)))
+		status = "frozen"
+		if !when.IsZero() && time.Since(when) >= 180*24*time.Hour {
+			status = "deep-archive"
+		}
+	} else if text, err := exec.Command("git", "-C", repo, "config", "--get", "cryobank.activeAt").Output(); err == nil {
+		when, _ = time.Parse(time.RFC3339, strings.TrimSpace(string(text)))
+	}
+	if when.IsZero() {
+		text, err := exec.Command("git", "-C", repo, "log", "-1", "--all", "--format=%aI").Output()
+		if err != nil {
+			return repoCard{}, err
+		}
+		when, _ = time.Parse(time.RFC3339, strings.TrimSpace(string(text)))
+	}
+	activity := when.Local().Format("2006-01-02")
+	if when.IsZero() {
+		activity = "no activity"
+	}
+	return repoCard{Name: name, Status: status, Activity: activity, When: when}, nil
 }
 
 func branches(repo string) ([]branchView, error) {

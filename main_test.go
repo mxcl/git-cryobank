@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,24 +14,15 @@ import (
 	"testing"
 )
 
-func TestCleanRejectsChangesAndUntrackedFiles(t *testing.T) {
-	repo := testRepo(t)
-	if err := clean(repo); err != nil {
-		t.Fatal(err)
+func TestMain(m *testing.M) {
+	if os.Getenv("CRYOBANK_SHELL_HELPER") == "1" {
+		if err := shell(nil); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
-	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("new"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := clean(repo); err == nil {
-		t.Fatal("clean accepted an untracked file")
-	}
-	os.Remove(filepath.Join(repo, "new.txt"))
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := clean(repo); err == nil {
-		t.Fatal("clean accepted a modified file")
-	}
+	os.Exit(m.Run())
 }
 
 func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
@@ -81,6 +73,15 @@ func TestRemoteResumeFinalizeAndBrowse(t *testing.T) {
 		t.Fatalf("idempotent commit: %v", err)
 	}
 	archivedRepo := filepath.Join(root, "project.git")
+	card, err := repositoryCard(root, "project")
+	if err != nil || card.Status != "frozen" {
+		t.Fatalf("repository card = %#v, %v", card, err)
+	}
+	runGit(t, archivedRepo, "config", "cryobank.frozenAt", "2020-01-01T00:00:00Z")
+	card, err = repositoryCard(root, "project")
+	if err != nil || card.Status != "deep-archive" {
+		t.Fatalf("old repository card = %#v, %v", card, err)
+	}
 	if got := strings.TrimSpace(runGit(t, archivedRepo, "rev-parse", "HEAD")); got != head {
 		t.Fatalf("archived HEAD = %s, want %s", got, head)
 	}
@@ -206,6 +207,30 @@ func TestFreezeSnapshotCapturesDirtyAndUntrackedFiles(t *testing.T) {
 	}
 }
 
+func TestShellPushAndClone(t *testing.T) {
+	root := t.TempDir()
+	setConfig(t, "root", root)
+	wrapper := filepath.Join(t.TempDir(), "cryobank-shell")
+	script := "#!/bin/sh\nexport CRYOBANK_SHELL_HELPER=1\nexport SSH_ORIGINAL_COMMAND=\"$GIT_EXT_SERVICE '$1'\"\nexec \"$CRYOBANK_TEST_BINARY\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CRYOBANK_TEST_BINARY", os.Args[0])
+	repo := testRepo(t)
+	remote := "ext::" + wrapper + " project.git"
+	runGit(t, repo, "remote", "add", "cryobank", remote)
+	runGit(t, repo, "-c", "protocol.ext.allow=always", "push", "cryobank", "main")
+	bare := filepath.Join(root, "project.git")
+	if got := strings.TrimSpace(runGit(t, bare, "rev-parse", "HEAD")); got == "" {
+		t.Fatal("pushed repository has no HEAD")
+	}
+	dest := filepath.Join(t.TempDir(), "clone")
+	runGit(t, "", "-c", "protocol.ext.allow=always", "clone", remote, dest)
+	if got := strings.TrimSpace(runGit(t, dest, "show", "HEAD:README.md")); got != "hello" {
+		t.Fatalf("cloned README = %q", got)
+	}
+}
+
 func testRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()
@@ -224,7 +249,7 @@ func setConfig(t *testing.T, name, value string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir := filepath.Join(home, ".config", "git-cryobank")
+	dir := filepath.Join(home, ".config", "cryobank")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}

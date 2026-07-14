@@ -1,117 +1,147 @@
-# `git-cryobank`
+# Cryobank
 
-Archive old Git repositories on another machine, browse them on the web, then
-put the local checkout in the macOS Trash.
+Push private Git repositories to your own machine, browse them, and freeze the
+projects you no longer want on your Mac.
+
+Cryobank has three executables:
+
+- `cryobank` runs the SSH endpoint and web browser.
+- `git-freeze` makes `git freeze` work.
+- `git-thaw` makes `git thaw` work.
+
+There are no users, pull requests, issues, actions, or database. Bare Git
+repositories hold everything.
 
 > [!CAUTION]
-> This is new software whose final step is moving a directory to Trash. It is
-> deliberately paranoid, but perhaps don't begin with the source code to your
-> livelihood.
+> `git freeze` ends by moving your checkout to the macOS Trash. Cryobank
+> verifies the upload first, but start with a project you can afford to lose.
 
-## Quickstart
+## Install
 
-Install it on your Mac and the archive host:
-
-```sh
-$ brew install mxcl/made/git-cryobank
-```
-
-Choose the host once on your Mac:
+Install Go and Git, then build the three executables:
 
 ```sh
-$ git-cryobank target pangolin
-Cryobank target configured as pangolin
+$ make test
+$ sudo make install
 ```
 
-> [!IMPORTANT]
-> Mount the external disk before configuring its path. `/Volumes/Tundra` must
-> actually be Tundra, not an unfortunately named directory on your boot disk.
-
-Point the host at some durable storage and start the browser:
+Set `PREFIX` if `/usr/local` is not on your `PATH`:
 
 ```sh
-$ ssh pangolin 'git-cryobank init /Volumes/Tundra/Attic'
-Cryobank root configured at /Volumes/Tundra/Attic
-
-$ ssh pangolin 'git-cryobank serve'
-Serving /Volumes/Tundra/Attic on http://127.0.0.1:9418
+$ make install PREFIX="$HOME/.local"
 ```
 
-Then freeze a project:
+Install Cryobank on your Mac and the SSH host.
+
+## Set up the host
+
+Choose the directory that will hold the bare repositories:
 
 ```sh
-$ cd ~/Developer/finished-with-this
-$ git cryobank
-Archived /Users/mxcl/Developer/finished-with-this to pangolin as finished-with-this and moved it to Trash.
+$ cryobank init /Volumes/Tundra/Cryobank
+Cryobank root configured at /Volumes/Tundra/Cryobank
 ```
 
-The bare repository now lives at
-`/Volumes/Tundra/Attic/finished-with-this.git`. Browse it through an SSH
-tunnel:
+Use a dedicated SSH key. Add it to `~/.ssh/authorized_keys` on the host with a
+forced command:
+
+```text
+command="/usr/local/bin/cryobank shell",restrict ssh-ed25519 AAAA... cryobank
+```
+
+Add an SSH alias on your Mac:
+
+```sshconfig
+Host cryobank
+    HostName pangolin.local
+    IdentityFile ~/.ssh/id_ed25519_cryobank
+```
+
+Tell the Git commands which host to use:
 
 ```sh
-$ ssh -N -L 9418:127.0.0.1:9418 pangolin
-# ^^ open http://127.0.0.1:9418
+$ git config --global cryobank.host cryobank
 ```
 
-## It either verifies or it doesn't touch your checkout
+## Push and pull
 
-`git-cryobank` refuses repositories with staged changes, worktree changes, or
-non-ignored untracked files. It bundles every ref plus `HEAD`, uploads over
-SSH, verifies the SHA-256 and every ref on the host, then checks that nothing
-local changed during the upload.
+The forced SSH command resolves repository names inside the configured root.
+The first push creates the bare repository.
 
-Only then does it call `/usr/bin/trash`.
+```sh
+$ git remote add cryobank cryobank:weekend-compiler.git
+$ git push -u cryobank main
+$ git clone cryobank:weekend-compiler.git
+```
 
-Interrupted uploads resume. Repeating a completed upload is safe. A basename
-collision, changed remote, failed verification, lost SSH connection, or failed
-Trash operation leaves your local checkout where it is.
+## Freeze and thaw
 
-> [!NOTE]
-> Git already owns `git archive`, so the command is `git cryobank`. Git finds
-> the installed `git-cryobank` executable automatically.
+Freeze the current checkout:
 
-## Choose the cryobank
+```sh
+$ git freeze
+Froze /Users/me/Code/weekend-compiler to cryobank as weekend-compiler and moved it to Trash.
+```
 
-`git-cryobank target HOST` writes the client destination to
-`~/.config/git-cryobank/target`. `git-cryobank init DIR` writes the server
-storage location to `~/.config/git-cryobank/root`. There are no flags,
-environment variables, or fallback locations; missing configuration is an
-error.
+Before touching the checkout, Cryobank:
+
+1. Captures all refs, stashes, staged changes, unstaged changes, and untracked
+   files that Git does not ignore.
+2. Uploads a resumable Git bundle over SSH.
+3. Verifies its checksum and every ref on the host.
+4. Checks that the checkout did not change during the upload.
+5. Calls the macOS `/usr/bin/trash` command.
+
+Ignored files stay behind. They often contain builds, dependencies, caches, or
+secrets and do not belong in Git storage.
+
+Bring a project back with:
+
+```sh
+$ git thaw weekend-compiler
+```
+
+Thaw restores the branch, file contents, untracked files, and stash refs.
+Staged and unstaged changes return as unstaged changes. Pass a second argument
+to choose the checkout path:
+
+```sh
+$ git thaw weekend-compiler ~/Code/compiler
+```
+
+## Browse
+
+Start the read-only web UI on the host:
+
+```sh
+$ cryobank serve
+Serving /Volumes/Tundra/Cryobank on http://127.0.0.1:9418
+```
+
+Forward it to your Mac:
+
+```sh
+$ ssh -N -L 9418:127.0.0.1:9418 pangolin.local
+```
+
+Open `http://127.0.0.1:9418`. The project feed marks repositories as active,
+frozen, or deep archive. A frozen project becomes deep archive after 180 days.
+Repository pages show branches, recent commits, trees, and files.
 
 > [!WARNING]
-> Ensure external storage is mounted before starting the server. Also, the web
-> UI has no authentication; bind to localhost and use an SSH tunnel, VPN, or
-> trusted reverse proxy.
+> The web UI has no authentication. Keep it on localhost and use an SSH tunnel,
+> VPN, or trusted reverse proxy.
 
-## Ordinary Git remains ordinary Git
+## Storage
 
-Repositories are bare mirrors, not entries in a database. Clone or push them
-with normal Git-over-SSH:
+The configured root contains ordinary bare repositories:
 
-```sh
-$ git clone pangolin:/Volumes/Tundra/Attic/finished-with-this.git
-$ git push pangolin:/Volumes/Tundra/Attic/finished-with-this.git main
+```text
+Cryobank/
+├── weekend-compiler.git/
+├── old-homebrew.git/
+└── .uploads/
 ```
 
-The web UI is read-only and intentionally small: repositories, branches,
-commits, file trees, and blobs. No users, issues, pull requests, actions, or other empty
-furniture.
-
-For the rest:
-
-```sh
-$ git-cryobank --help
-```
-
-## Build
-
-Requires Go and Git:
-
-```sh
-$ go test -race ./...
-$ go build ./...
-```
-
-The client requires macOS because it uses the native Trash. The receiver and
-web server also build on Linux.
+Back up that whole directory. The `.uploads` directory contains resumable
+transfers and can be discarded when no freeze is running.

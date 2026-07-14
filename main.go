@@ -15,8 +15,7 @@ import (
 	"strings"
 )
 
-const usage = `git cryobank [PATH]
-git freeze [PATH]
+const usage = `git freeze [PATH]
 git thaw NAME [PATH]
 cryobank init ROOT
 cryobank serve [--listen ADDR]
@@ -71,6 +70,10 @@ func run(args []string) error {
 }
 
 func freeze(args []string) error {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Println("usage: git freeze [PATH]")
+		return nil
+	}
 	if len(args) > 1 {
 		return errors.New("usage: git freeze [PATH]")
 	}
@@ -219,6 +222,10 @@ func freezeSnapshot(repo string, writeRef bool) (snapshotState, func(), error) {
 }
 
 func thaw(args []string) error {
+	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
+		fmt.Println("usage: git thaw NAME [PATH]")
+		return nil
+	}
 	if len(args) < 1 || len(args) > 2 {
 		return errors.New("usage: git thaw NAME [PATH]")
 	}
@@ -281,7 +288,9 @@ func thaw(args []string) error {
 			return fmt.Errorf("checkout restored but working changes could not be applied: %w", err)
 		}
 	}
-	_, _ = ssh(host, nil, "activate", name)
+	if _, err := ssh(host, nil, "activate", name); err != nil {
+		return fmt.Errorf("checkout restored, but Cryobank could not mark it active: %w", err)
+	}
 	fmt.Printf("Thawed %s into %s.\n", name, repo)
 	return nil
 }
@@ -325,20 +334,6 @@ func repository(path string) (string, error) {
 		}
 	}
 	return repo, nil
-}
-
-func clean(repo string) error {
-	out, err := output(repo, "git", "status", "--porcelain=v1", "--untracked-files=all")
-	if err != nil {
-		return err
-	}
-	if out != "" {
-		return errors.New("repository has staged, modified, or untracked files; nothing was archived")
-	}
-	if _, err := output(repo, "git", "rev-parse", "--verify", "HEAD"); err != nil {
-		return errors.New("repository has no HEAD commit")
-	}
-	return nil
 }
 
 func fileDigest(path string) (string, int64, error) {
@@ -400,7 +395,7 @@ func configPath(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "git-cryobank", name), nil
+	return filepath.Join(home, ".config", "cryobank", name), nil
 }
 
 func command(dir, name string, args ...string) error {
